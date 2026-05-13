@@ -1,0 +1,35 @@
+Checks: >
+  *,
+  -abseil-*,
+  -android-*,
+  -altera-*,
+  -fuchsia-*,
+  -google-readability-todo,
+  -llvm-header-guard,
+  -llvmlibc-restrict-system-libc-headers,
+  -misc-include-cleaner,
+  -bugprone-easily-swappable-parameters,
+  -readability-braces-around-statements,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-vararg,
+  -hicpp-signed-bitwise,
+  -hicpp-uppercase-literal-suffix,
+  -readability-uppercase-literal-suffix
+
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(?!.*vendor/).*'
+
+CheckOptions:
+  - key:             readability-identifier-naming.FunctionCase
+    value:           lower_case
+  - key:             readability-identifier-naming.VariableCase
+    value:           lower_case
+  - key:             readability-identifier-naming.GlobalFunctionCase
+    value:           lower_case
+  - key:             readability-identifier-naming.StaticFunctionCase
+    value:           lower_case
+  - key:             readability-identifier-naming.ParameterCase
+    value:           lower_case
