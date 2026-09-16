@@ -138,13 +138,13 @@ static void execute_pipe(char *left_args[], char *right_args[]) {
   wait(NULL);
 }
 
-static void execute_args(char *args[]) {
+static int execute_args(char *args[]) {
   int is_background = 0;
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], "|") == 0) {
       args[i] = NULL;
       execute_pipe(args, &args[i + 1]);
-      return;
+      return -1;
     }
     if (strcmp(args[i], "&") == 0) {
       args[i] = NULL;
@@ -155,14 +155,68 @@ static void execute_args(char *args[]) {
   pid_t pid = fork();
   if (pid < 0) {
     perror("[bebish]: fork failed");
-    return;
+    return -1;
   }
 
   if (pid == 0) {
 
     execute_child(args);
   } else if (!is_background) {
-    wait(NULL);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    return WEXITSTATUS(status);
+  }
+  return -1;
+}
+
+static int find_next_operator(char *args[], int start) {
+  int i = start;
+  while (args[i] != NULL && strcmp(args[i], "&&") != 0 &&
+         strcmp(args[i], "||") != 0) {
+    i++;
+  }
+  return i;
+}
+
+static int skip_to_next_operator(char *args[], int start,
+                                 const char *target_op) {
+  int i = start;
+  while (args[i] != NULL && strcmp(args[i], target_op) != 0) {
+    i++;
+  }
+  if (args[i] != NULL) {
+    i++;
+  }
+  return i;
+}
+
+static void execute_line(char *args[]) {
+  int i = 0;
+  while (args[i] != NULL) {
+    int op_index = find_next_operator(args, i);
+
+    char *next_op = args[op_index];
+    args[op_index] = NULL;
+
+    int status = execute_args(&args[i]);
+
+    if (next_op == NULL) {
+      break;
+    }
+
+    if (strcmp(next_op, "&&") == 0) {
+      if (status == 0) {
+        i = op_index + 1;
+      } else {
+        i = skip_to_next_operator(args, op_index + 1, "||");
+      }
+    } else if (strcmp(next_op, "||") == 0) {
+      if (status != 0) {
+        i = op_index + 1;
+      } else {
+        i = skip_to_next_operator(args, op_index + 1, "&&");
+      }
+    }
   }
 }
 
@@ -218,7 +272,7 @@ int main(void) {
     } else if (strcmp(args[0], "cd") == 0) {
       builtin_cd(args);
     } else {
-      execute_args(args);
+      execute_line(args);
     }
   }
 
