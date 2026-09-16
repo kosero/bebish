@@ -98,7 +98,6 @@ static void handle_redirections(char *args[]) {
     (void)close(fd);
 
     args[i] = NULL;
-    break;
   }
 }
 
@@ -295,11 +294,7 @@ int main(void) {
       continue;
     }
 
-    if (strcmp(args[0], "exit") == 0) {
-      _exit(0);
-    } else {
-      execute_line(args);
-    }
+    execute_line(args);
   }
 
   free(line);
