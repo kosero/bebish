@@ -139,11 +139,16 @@ static void execute_pipe(char *left_args[], char *right_args[]) {
 }
 
 static void execute_args(char *args[]) {
+  int is_background = 0;
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], "|") == 0) {
       args[i] = NULL;
       execute_pipe(args, &args[i + 1]);
       return;
+    }
+    if (strcmp(args[i], "&") == 0) {
+      args[i] = NULL;
+      is_background = 1;
     }
   }
 
@@ -156,7 +161,7 @@ static void execute_args(char *args[]) {
   if (pid == 0) {
 
     execute_child(args);
-  } else {
+  } else if (!is_background) {
     wait(NULL);
   }
 }
