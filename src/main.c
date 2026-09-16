@@ -21,7 +21,7 @@ static const char *get_env_var(const char *name) {
   return NULL;
 }
 
-static void builtin_cd(char **args) {
+static int builtin_cd(char **args) {
   const char *path = args[1];
   if (path == NULL) {
     path = get_env_var("HOME");
@@ -29,12 +29,15 @@ static void builtin_cd(char **args) {
 
   if (path == NULL) {
     (void)fprintf(stderr, "[bebish]: cd: HOME not set\n");
-    return;
+    return -1;
   }
 
   if (chdir(path) != 0) {
     perror("[bebish]: cd failed");
+    return -1;
   }
+
+  return 0;
 }
 
 static int read_line(char **line, size_t *len) {
@@ -139,6 +142,17 @@ static void execute_pipe(char *left_args[], char *right_args[]) {
 }
 
 static int execute_args(char *args[]) {
+  if (args == NULL || args[0] == NULL) {
+    return 0;
+  }
+
+  if (strcmp(args[0], "cd") == 0) {
+    return builtin_cd(args);
+  }
+  if (strcmp(args[0], "exit") == 0) {
+    _exit(0);
+  }
+
   int is_background = 0;
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], "|") == 0) {
@@ -159,14 +173,18 @@ static int execute_args(char *args[]) {
   }
 
   if (pid == 0) {
-
     execute_child(args);
   } else if (!is_background) {
     int status = 0;
-    waitpid(pid, &status, 0);
-    return WEXITSTATUS(status);
+    if (waitpid(pid, &status, 0) > 0) {
+      if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+      }
+    }
+    return -1;
   }
-  return -1;
+
+  return 0;
 }
 
 static int find_next_operator(char *args[], int start) {
@@ -269,8 +287,6 @@ int main(void) {
 
     if (strcmp(args[0], "exit") == 0) {
       _exit(0);
-    } else if (strcmp(args[0], "cd") == 0) {
-      builtin_cd(args);
     } else {
       execute_line(args);
     }
