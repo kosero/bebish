@@ -111,7 +111,42 @@ static void execute_child(char *args[]) {
   _exit(1);
 }
 
+static void execute_pipe(char *left_args[], char *right_args[]) {
+  int pipefd[2];
+  if (pipe(pipefd) < 0) {
+    perror("[bebish]: pipe failed");
+    return;
+  }
+
+  if (fork() == 0) {
+    dup2(pipefd[1], STDOUT_FILENO);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    execute_child(left_args);
+  }
+
+  if (fork() == 0) {
+    dup2(pipefd[0], STDIN_FILENO);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    execute_child(right_args);
+  }
+
+  close(pipefd[0]);
+  close(pipefd[1]);
+  wait(NULL);
+  wait(NULL);
+}
+
 static void execute_args(char *args[]) {
+  for (int i = 0; args[i] != NULL; i++) {
+    if (strcmp(args[i], "|") == 0) {
+      args[i] = NULL;
+      execute_pipe(args, &args[i + 1]);
+      return;
+    }
+  }
+
   pid_t pid = fork();
   if (pid < 0) {
     perror("[bebish]: fork failed");
@@ -119,6 +154,7 @@ static void execute_args(char *args[]) {
   }
 
   if (pid == 0) {
+
     execute_child(args);
   } else {
     wait(NULL);
