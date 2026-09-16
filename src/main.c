@@ -114,21 +114,23 @@ static void execute_child(char *args[]) {
   _exit(1);
 }
 
-static void execute_pipe(char *left_args[], char *right_args[]) {
+static int execute_pipe(char *left_args[], char *right_args[]) {
   int pipefd[2];
   if (pipe(pipefd) < 0) {
     perror("[bebish]: pipe failed");
-    return;
+    return -1;
   }
 
-  if (fork() == 0) {
+  pid_t pid1 = fork();
+  if (pid1 == 0) {
     dup2(pipefd[1], STDOUT_FILENO);
     close(pipefd[0]);
     close(pipefd[1]);
     execute_child(left_args);
   }
 
-  if (fork() == 0) {
+  pid_t pid2 = fork();
+  if (pid2 == 0) {
     dup2(pipefd[0], STDIN_FILENO);
     close(pipefd[0]);
     close(pipefd[1]);
@@ -137,8 +139,17 @@ static void execute_pipe(char *left_args[], char *right_args[]) {
 
   close(pipefd[0]);
   close(pipefd[1]);
-  wait(NULL);
-  wait(NULL);
+
+  waitpid(pid1, NULL, 0);
+
+  int status = 0;
+  if (waitpid(pid2, &status, 0) > 0) {
+    if (WIFEXITED(status)) {
+      return WEXITSTATUS(status);
+    }
+  }
+
+  return 0;
 }
 
 static int execute_args(char *args[]) {
@@ -157,8 +168,7 @@ static int execute_args(char *args[]) {
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], "|") == 0) {
       args[i] = NULL;
-      execute_pipe(args, &args[i + 1]);
-      return -1;
+      return execute_pipe(args, &args[i + 1]);
     }
     if (strcmp(args[i], "&") == 0) {
       args[i] = NULL;
