@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -48,23 +49,67 @@ static int read_line(char **line, size_t *len) {
   return 0;
 }
 
+typedef enum {
+  TOKEN_WORD,
+  TOKEN_PIPE,
+  TOKEN_AND,
+  TOKEN_OR,
+} TokenType;
+
+typedef struct {
+  char *value;
+  TokenType type;
+} Token;
+
+static char *parse_token(char **line_ptr) {
+  char *p = *line_ptr;
+
+  while (*p == ' ' || *p == '\t' || *p == '\n') {
+    p++;
+  }
+
+  if (*p == '\0') {
+    *line_ptr = p;
+    return NULL;
+  }
+
+  char quote = 0;
+  if (*p == '"' || *p == '\'') {
+    quote = *p;
+    p++;
+  }
+
+  char *token = p;
+  while (*p != '\0') {
+    if (quote && *p == quote) {
+      *p = '\0';
+      p++;
+      break;
+    }
+    if (!quote && (*p == ' ' || *p == '\t' || *p == '\n')) {
+      *p = '\0';
+      p++;
+      break;
+    }
+    p++;
+  }
+
+  *line_ptr = p;
+  return token;
+}
+
 static int parse_line(char *args[], char *line) {
   size_t i = 0;
-
-  char *saveptr = NULL;
-  char *token = strtok_r(line, " \n", &saveptr);
-  while (token != NULL && i < 63) {
-    args[i] = token;
-    i++;
-    token = strtok_r(NULL, " \n", &saveptr);
+  char *cursor = line;
+  while (i < 63) {
+    char *token = parse_token(&cursor);
+    if (token == NULL) {
+      break;
+    }
+    args[i++] = token;
   }
-
   args[i] = NULL;
-  if (args[0] == NULL) {
-    return -1;
-  }
-
-  return 0;
+  return (args[0] == NULL) ? -1 : 0;
 }
 
 static void handle_redirections(char *args[]) {
@@ -101,6 +146,36 @@ static void handle_redirections(char *args[]) {
   }
 }
 
+enum { MAX_CMD_LEN = 256, MAX_ARGS = 64 };
+
+static int sanitize_command_name(const char *src, char *dst, size_t dst_size) {
+  if (src == NULL || dst == NULL || dst_size == 0) {
+    return -1;
+  }
+
+  size_t i = 0;
+  for (; src[i] != '\0'; i++) {
+    if (i >= dst_size - 1) {
+      return -1;
+    }
+
+    unsigned char c = (unsigned char)src[i];
+    if (c <= 32 || c >= 127) {
+      return -1;
+    }
+
+    dst[i] = (char)c;
+  }
+
+  dst[i] = '\0';
+
+  if (strstr(dst, "..") != NULL) {
+    return -1;
+  }
+
+  return 0;
+}
+
 static void execute_child(char *args[]) {
   handle_redirections(args);
 
@@ -108,7 +183,29 @@ static void execute_child(char *args[]) {
     _exit(0);
   }
 
-  execvp(args[0], args);
+  char clean_storage[MAX_ARGS][MAX_CMD_LEN];
+  char *clean_args[MAX_ARGS];
+
+  size_t count = 0;
+  while (args[count] != NULL && count < (MAX_ARGS - 1)) {
+    if (sanitize_command_name(args[count], clean_storage[count],
+                              sizeof(clean_storage[count])) != 0) {
+      (void)fprintf(stderr, "[bebish]: invalid or unsafe argument\n");
+      _exit(1);
+    }
+    clean_args[count] = clean_storage[count];
+    count++;
+  }
+
+  clean_args[count] = NULL;
+
+  if (strstr(clean_args[0], "..") != NULL) {
+    (void)fprintf(stderr, "[bebish]: invalid path traversal\n");
+    _exit(1);
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint)
+  execvp(clean_args[0], clean_args);
   perror("[bebish]: execvp failed");
   _exit(1);
 }
@@ -253,7 +350,7 @@ static void get_system_hostname(char *buffer, size_t len) {
   }
 }
 
-static void print_prompt() {
+static void print_prompt(void) {
   char cwd[1024];
   char hostname[256];
   get_system_hostname(hostname, sizeof(hostname));
@@ -278,8 +375,7 @@ int main(void) {
   size_t len = 0;
 
   while (1) {
-    int f_err = fflush(stdout);
-    assert(f_err == 0);
+    assert(fflush(stdout) == 0);
 
     print_prompt();
 
