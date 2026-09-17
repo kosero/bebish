@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <ctype.h>
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -210,42 +209,87 @@ static void execute_child(char *args[]) {
   _exit(1);
 }
 
-static int execute_pipe(char *left_args[], char *right_args[]) {
-  int pipefd[2];
-  if (pipe(pipefd) < 0) {
-    perror("[bebish]: pipe failed");
+static void setup_child_pipes(int prev_fd, int pipefd[2], int is_last) {
+  if (prev_fd != -1) {
+    if (dup2(prev_fd, STDIN_FILENO) == -1) {
+      perror("[bebish]: dup2 STDIN failed");
+      _exit(EXIT_FAILURE);
+    }
+    close(prev_fd);
+  }
+
+  if (!is_last) {
+    if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
+      perror("[bebish]: dup2 STDOUT failed");
+      _exit(EXIT_FAILURE);
+    }
+    close(pipefd[1]);
+    close(pipefd[0]);
+  }
+}
+
+static pid_t spawn_pipe_stage(char *cmd_args[], int prev_fd, int pipefd[2],
+                              int is_last) {
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("[bebish]: fork failed");
     return -1;
   }
 
-  pid_t pid1 = fork();
-  if (pid1 == 0) {
-    dup2(pipefd[1], STDOUT_FILENO);
-    close(pipefd[0]);
-    close(pipefd[1]);
-    execute_child(left_args);
+  if (pid == 0) {
+    setup_child_pipes(prev_fd, pipefd, is_last);
+    execute_child(cmd_args);
+    _exit(EXIT_FAILURE);
   }
 
-  pid_t pid2 = fork();
-  if (pid2 == 0) {
-    dup2(pipefd[0], STDIN_FILENO);
-    close(pipefd[0]);
-    close(pipefd[1]);
-    execute_child(right_args);
-  }
+  return pid;
+}
 
-  close(pipefd[0]);
-  close(pipefd[1]);
+static int wait_pipe_stages(pid_t pids[], int cmd_count) {
+  int last_status = 0;
 
-  waitpid(pid1, NULL, 0);
-
-  int status = 0;
-  if (waitpid(pid2, &status, 0) > 0) {
-    if (WIFEXITED(status)) {
-      return WEXITSTATUS(status);
+  for (int i = 0; i < cmd_count; i++) {
+    int status = 0;
+    if (waitpid(pids[i], &status, 0) == -1) {
+      perror("[bebish]: waitpid failed");
+      continue;
+    }
+    if (i == cmd_count - 1 && WIFEXITED(status)) {
+      last_status = WEXITSTATUS(status);
     }
   }
 
-  return 0;
+  return last_status;
+}
+
+static int execute_pipe(char **cmds[], int cmd_count) {
+  pid_t pids[64];
+  int prev_fd = -1;
+
+  for (int i = 0; i < cmd_count; i++) {
+    int pipefd[2] = {-1, -1};
+    int is_last = (i == cmd_count - 1);
+
+    if (!is_last && pipe(pipefd) == -1) {
+      perror("[bebish]: pipe failed");
+      return -1;
+    }
+
+    pids[i] = spawn_pipe_stage(cmds[i], prev_fd, pipefd, is_last);
+    if (pids[i] < 0) {
+      return -1;
+    }
+
+    if (prev_fd != -1) {
+      close(prev_fd);
+    }
+    if (!is_last) {
+      close(pipefd[1]);
+      prev_fd = pipefd[0];
+    }
+  }
+
+  return wait_pipe_stages(pids, cmd_count);
 }
 
 static int execute_args(char *args[]) {
@@ -260,16 +304,25 @@ static int execute_args(char *args[]) {
     _exit(0);
   }
 
+  char **cmds[64] = {0};
+  int cmd_count = 1;
+  cmds[0] = args;
+
   int is_background = 0;
+
   for (int i = 0; args[i] != NULL; i++) {
     if (strcmp(args[i], "|") == 0) {
       args[i] = NULL;
-      return execute_pipe(args, &args[i + 1]);
-    }
-    if (strcmp(args[i], "&") == 0) {
+      cmds[cmd_count] = &args[i + 1];
+      cmd_count++;
+    } else if (strcmp(args[i], "&") == 0) {
       args[i] = NULL;
       is_background = 1;
     }
+  }
+
+  if (cmd_count > 1) {
+    return execute_pipe(cmds, cmd_count);
   }
 
   pid_t pid = fork();
