@@ -2,8 +2,8 @@ TARGET			:= bebish
 SRC_DIR 		:= src
 INC_DIR     := inc
 BUILD_DIR 	:= build
-SRCS      	:= $(wildcard $(SRC_DIR)/*.c)
-OBJS				:= $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+SRCS         := $(shell find $(SRC_DIR) -name '*.c')
+OBJS         := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 DEPS				:= $(OBJS:.o=.d)
 
 CC					:= cc
@@ -41,6 +41,7 @@ $(TARGET): $(OBJS)
 	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CXXFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR):
