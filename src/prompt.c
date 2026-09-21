@@ -1,13 +1,21 @@
 #include "prompt.h"
 #include "env.h"
-#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
 static void get_system_hostname(char *buffer, size_t len) {
-  if (gethostname(buffer, len)) {
-    (void)snprintf(buffer, len, "unknown");
+  if (len == 0) {
+    return;
+  }
+  if (gethostname(buffer, len) != 0) {
+    int err = snprintf(buffer, len, "unknown");
+    if (err < 0 || (size_t)err >= len) {
+      perror("[bebish]: get hostname failed");
+      _exit(1);
+    }
+  } else {
+    buffer[len - 1] = '\0';
   }
 }
 
@@ -22,9 +30,9 @@ void print_prompt(void) {
 
     if (prefix != NULL && strncmp(cwd, prefix, prefix_len) == 0) {
       memmove(cwd, cwd + prefix_len, strlen(cwd + prefix_len) + 1);
-      printf("%s@%s ~%s$ ", get_env_var("USER"), hostname, cwd);
+      printf("%s@%s:~%s$ ", get_env_var("USER"), hostname, cwd);
     } else {
-      printf("%s@%s %s$ ", get_env_var("USER"), hostname, cwd);
+      printf("%s@%s:%s$ ", get_env_var("USER"), hostname, cwd);
     }
   } else {
     perror("[bebish]: getcwd failed");
