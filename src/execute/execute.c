@@ -8,7 +8,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static int sanitize_command_name(const char *src, char *dst, size_t dst_size) {
+static int sanitize_argument(const char *src, char *dst, size_t dst_size) {
   if (src == NULL || dst == NULL || dst_size == 0) {
     return -1;
   }
@@ -20,7 +20,7 @@ static int sanitize_command_name(const char *src, char *dst, size_t dst_size) {
     }
 
     unsigned char c = (unsigned char)src[i];
-    if (c <= 32 || c >= 127) {
+    if (c < 32 || c == 127) {
       return -1;
     }
 
@@ -28,11 +28,6 @@ static int sanitize_command_name(const char *src, char *dst, size_t dst_size) {
   }
 
   dst[i] = '\0';
-
-  if (strstr(dst, "..") != NULL) {
-    return -1;
-  }
-
   return 0;
 }
 
@@ -48,8 +43,8 @@ void execute_child(char *args[]) {
 
   size_t count = 0;
   while (args[count] != NULL && count < (MAX_ARGS - 1)) {
-    if (sanitize_command_name(args[count], clean_storage[count],
-                              sizeof(clean_storage[count])) != 0) {
+    if (sanitize_argument(args[count], clean_storage[count],
+                          sizeof(clean_storage[count])) != 0) {
       (void)fprintf(stderr, "[bebish]: invalid or unsafe argument\n");
       _exit(1);
     }
@@ -59,9 +54,8 @@ void execute_child(char *args[]) {
 
   clean_args[count] = NULL;
 
-  if (strstr(clean_args[0], "..") != NULL) {
-    (void)fprintf(stderr, "[bebish]: invalid path traversal\n");
-    _exit(1);
+  if (clean_args[0] == NULL) {
+    _exit(0);
   }
 
   // NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint)
